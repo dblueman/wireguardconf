@@ -3,6 +3,7 @@ package wireguardconf
 import (
    "errors"
    "fmt"
+   "net/netip"
    "os"
    "regexp"
    "strconv"
@@ -10,29 +11,8 @@ import (
 
 var (
    reInterface = regexp.MustCompile(`\[Interface\]\nAddress = ([\d\.]+)/(\d+)\nListenPort = (\d+)\nPrivateKey = (\S{44})\nMTU = (\d+)`)
-   rePeer = regexp.MustCompile(`# [^\n]+\n\[Peer\]\nPublicKey = (\S{44})\nAllowedIPs = ([\d\.]+)/(\d+)[^\n]*\nPresharedKey = (\S{44})\n`)
+   rePeer = regexp.MustCompile(`# ([^\n]+)\n\[Peer\]\nPublicKey = (\S{44})\nAllowedIPs = ([\d\.]+)/(\d+)[^\n]*\nPresharedKey = (\S{44})\n`)
 )
-
-type Interface struct {
-   Address    string
-   Mask       int
-   ListenPort int
-   PrivateKey string
-   MTU        string
-}
-
-type Peer struct {
-   PublicKey    string
-   AllowedIP    string
-   Mask         int
-   PresharedKey string
-}
-
-type Wireguard struct {
-   Filename  string
-   Interface Interface
-   Peers     []Peer
-}
 
 func New(fname string) *Wireguard {
    return &Wireguard{
@@ -51,7 +31,11 @@ func (wg *Wireguard) Load() error {
       return errors.New("Load: no 'interface' section")
    }
 
-   wg.Interface.Address = string(m[1])
+   wg.Interface.Address, err = netip.ParseAddr(string(m[1]))
+   if err != nil {
+      return fmt.Errorf("Load: %w", err)
+   }
+
    wg.Interface.Mask, err = strconv.Atoi(string(m[2]))
    if err != nil {
       return fmt.Errorf("Load: %w", err)
@@ -67,17 +51,87 @@ func (wg *Wireguard) Load() error {
 
    for _, m := range rePeer.FindAllSubmatch(content[:], -1) {
       peer := Peer{
-         PublicKey:    string(m[1]),
-         AllowedIP:    string(m[2]),
-         PresharedKey: string(m[4]),
+         Comment:      string(m[1]),
+         PublicKey:    string(m[2]),
+         PresharedKey: string(m[5]),
       }
 
-      peer.Mask, err = strconv.Atoi(string(m[3]))
+      peer.AllowedIP, err = netip.ParseAddr(string(m[3]))
+      if err != nil {
+         return fmt.Errorf("Load: %w", err)
+      }
+
+      peer.Mask, err = strconv.Atoi(string(m[4]))
       if err != nil {
          return fmt.Errorf("Load: %w", err)
       }
 
       wg.Peers = append(wg.Peers, peer)
+   }
+
+   return nil
+}
+
+func (wg *Wireguard) used(addr netip.Addr) bool {
+   for _, peer := range wg.Peers {
+      if peer.AllowedIP == addr {
+         return true
+      }
+   }
+
+   return false
+}
+
+func (wg *Wireguard) Add(comment string) (*Peer, error) {
+   addr := wg.Peers[0].AllowedIP
+
+   for wg.used(addr) {
+      addr = addr.Next()
+   }
+
+   peer := Peer{
+      Comment:   comment,
+      AllowedIP: addr,
+      Mask:      32,
+   }
+
+   var err error
+   peer.PresharedKey, err = genPresharedKey()
+   if err != nil {
+      return nil, fmt.Errorf("Add: %w", err)
+   }
+
+   peer.PrivateKey, err = genPrivKey()
+   if err != nil {
+      return nil, fmt.Errorf("Add: %w", err)
+   }
+
+   peer.PublicKey, err = genPubKey(peer.PrivateKey)
+   if err != nil {
+      return nil, fmt.Errorf("Add: %w", err)
+   }
+
+   wg.Peers = append(wg.Peers, peer)
+   return &peer, nil
+}
+
+func (wg *Wireguard) Append(peer *Peer) error {
+   f, err := os.OpenFile(wg.Filename, os.O_WRONLY | os.O_APPEND, 0o600)
+   if err != nil {
+      return fmt.Errorf("Append: %w", err)
+   }
+
+   buf := fmt.Sprintf("\n# %s\n[Peer]\nPublicKey = %s\nAllowedIPs = %s/32\nPresharedKey = %s\n",
+     peer.Comment, peer.PublicKey, peer.AllowedIP.String(), peer.PresharedKey)
+
+   _, err = f.WriteString(buf)
+   if err != nil {
+      return fmt.Errorf("Append: %w", err)
+   }
+
+   err = f.Close()
+   if err != nil {
+      return fmt.Errorf("Append: %w", err)
    }
 
    return nil
