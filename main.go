@@ -47,6 +47,11 @@ func (wg *Wireguard) Load() error {
    }
 
    wg.Interface.PrivateKey = string(m[4])
+   wg.Interface.PublicKey, err = derivePubKey(wg.Interface.PrivateKey)
+   if err != nil {
+      return fmt.Errorf("Load: %w", err)
+   }
+
    wg.Interface.MTU        = string(m[5])
 
    for _, m := range rePeer.FindAllSubmatch(content[:], -1) {
@@ -106,7 +111,7 @@ func (wg *Wireguard) Add(comment string) (*Peer, error) {
       return nil, fmt.Errorf("Add: %w", err)
    }
 
-   peer.PublicKey, err = genPubKey(peer.PrivateKey)
+   peer.PublicKey, err = derivePubKey(peer.PrivateKey)
    if err != nil {
       return nil, fmt.Errorf("Add: %w", err)
    }

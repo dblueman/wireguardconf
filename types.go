@@ -9,6 +9,7 @@ type Interface struct {
    Mask       int
    ListenPort int
    PrivateKey string
+   PublicKey  string
    MTU        string
 }
 

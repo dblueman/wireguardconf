@@ -25,7 +25,7 @@ func genPresharedKey() (string, error) {
    return strings.TrimSpace(string(out)), nil
 }
 
-func genPubKey(privkey string) (string, error) {
+func derivePubKey(privkey string) (string, error) {
    cmd := exec.Command("wg", "pubkey")
    cmd.Stdin = strings.NewReader(privkey)
 
@@ -34,7 +34,7 @@ func genPubKey(privkey string) (string, error) {
 
    err := cmd.Run()
    if err != nil {
-      return "", fmt.Errorf("genPubkey: %w", err)
+      return "", fmt.Errorf("derivePublicKey: %w", err)
    }
 
    return strings.TrimSpace(stdout.String()), nil
