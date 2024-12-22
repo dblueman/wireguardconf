@@ -10,7 +10,7 @@ type Interface struct {
    ListenPort int
    PrivateKey string
    PublicKey  string
-   MTU        string
+   MTU        int
 }
 
 type Peer struct {

@@ -52,7 +52,10 @@ func (wg *Wireguard) Load() error {
       return fmt.Errorf("Load: %w", err)
    }
 
-   wg.Interface.MTU        = string(m[5])
+   wg.Interface.MTU, err = strconv.Atoi(string(m[5]))
+   if err != nil {
+      return fmt.Errorf("Load: %w", err)
+   }
 
    for _, m := range rePeer.FindAllSubmatch(content[:], -1) {
       peer := Peer{
